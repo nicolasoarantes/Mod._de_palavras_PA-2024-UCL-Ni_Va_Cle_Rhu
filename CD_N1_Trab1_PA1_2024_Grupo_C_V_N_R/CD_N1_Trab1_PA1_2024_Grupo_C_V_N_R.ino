@@ -1,85 +1,128 @@
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 #include <LiquidCrystal.h>
-#include <String.h>
 
-const int rs = 8, en = 9, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+// Definindo os pinos do LCD
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-String frase;
+// Definição dos valores dos botões
+#define btnDIREITA  0
+#define btnCIMA     1
+#define btnBAIXO    2
+#define btnESQUERDA 3
+#define btnSELECIONAR 4
+#define btnNENHUM   5
+
+int botaoAtual = btnNENHUM; // Armazena o estado atual do botão
+int opcaoSelecionada = 0; // Armazena a opção selecionada pelo usuário
+
+unsigned long lastDebounceTime = 0;  // Tempo da última mudança de estado
+unsigned long debounceDelay = 50;    // Tempo de debounce
+
+// Função para ler os botões do LCD com debounce
+int lerBotoesLCD() {
+    int adc_valor = analogRead(0);  // Lê o valor analógico do pino A0
+    int botaoLido = btnNENHUM;
+
+    if (adc_valor < 50) {
+        botaoLido = btnDIREITA;
+    } else if (adc_valor < 195) {
+        botaoLido = btnCIMA;
+    } else if (adc_valor < 380) {
+        botaoLido = btnBAIXO;
+    } else if (adc_valor < 555) {
+        botaoLido = btnESQUERDA;
+    } else if (adc_valor < 790) {
+        botaoLido = btnSELECIONAR;
+    }
+
+    if (botaoLido != botaoAtual) {
+        lastDebounceTime = millis();
+        botaoAtual = botaoLido;
+    }
+
+    if ((millis() - lastDebounceTime) > debounceDelay) {
+        return botaoAtual;
+    }
+
+    return btnNENHUM;
+}
 
 void setup() {
-  lcd.begin(16, 2);
-  lcd.setCursor(0, 0);
-  lcd.print("Digite uma frase:");
-  Serial.begin(9600);
+    lcd.begin(16, 2);
+    Serial.begin(9600);
+    lcd.print("PA 2024");
+    delay(2000);
+    lcd.clear();
+    lcd.print("Escolha sua opcao");
+    delay(1000);
+    mostrarMenu();
 }
 
 void loop() {
-  while (!Serial.available()) {} // Espera até que algo seja digitado no terminal
-  frase = Serial.readStringUntil('\n'); // Lê a frase digitada pelo usuário até o caractere de nova linha
+    int botao = lerBotoesLCD();
+    if (botao != btnNENHUM) {
+        if (botao == btnSELECIONAR) {
+            executarOpcao();
+            mostrarMenu();
+        } else if (botao == btnESQUERDA) {
+            opcaoSelecionada = (opcaoSelecionada + 1) % 2;
+            mostrarMenu();
+        }
+    }
+}
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Frase digitada:");
-  lcd.setCursor(0, 1);
-  lcd.print(frase);
+void mostrarMenu() {
+    lcd.clear();
+    lcd.print(opcaoSelecionada == 0 ? "> PC -> Arduino" : "  PC -> Arduino");
+    lcd.setCursor(0, 1);
+    lcd.print(opcaoSelecionada == 1 ? "> Arduino -> PC" : "  Arduino -> PC");
+}
 
+void executarOpcao() {
+    lcd.clear();
+    if (opcaoSelecionada == 0) {
+        receberDoPC();
+    } else {
+        enviarParaPC();
+    }
+}
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Digite uma palavra:");
-  lcd.setCursor(0, 1);
-  lcd.print("da frase para substituir:");
+void receberDoPC() {
+    lcd.print("Aguardando...");
+    while (!Serial.available());
+    String mensagem = Serial.readString();
+    lcd.clear();
+    lcd.print(mensagem);
+    delay(5000);
+    lcd.clear();
+    mostrarMenu();
+}
 
+void enviarParaPC() {
+    lcd.print("Escrevendo:");
+    String mensagem = "";
+    char letras[] = {'a', 'e', 'i', 'o', 'u', ' '}; // Espaço adicionado
+    int indiceLetra = 0;
 
-  while (!Serial.available()) {} // Espera até que algo seja digitado no terminal
-  String palavraEscolhida = Serial.readStringUntil('\n'); // Lê a palavra escolhida pelo usuário até o caractere de nova linha
-  palavraEscolhida.trim(); // Remove espaços em branco do início e do fim da palavra
+    while (mensagem.length() < 8) {
+        int botao = lerBotoesLCD();
+        if (botao == btnESQUERDA) {
+            indiceLetra = (indiceLetra + 1) % 6;
+            lcd.setCursor(mensagem.length(), 1);
+            lcd.print(letras[indiceLetra]);
+            delay(200);  // Debounce
+        } else if (botao == btnSELECIONAR) {
+            mensagem += letras[indiceLetra];
+            lcd.setCursor(mensagem.length(), 1);
+            lcd.print(letras[indiceLetra]);
+            delay(200);  // Debounce
+        }
+    }
 
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Palavra escolhida:");
-  lcd.setCursor(0, 1);
-  lcd.print(palavraEscolhida);
-
-  delay(2000); // Aguarda 2 segundos antes de continuar
-  for (int i = 0; i < frase.length() - 16; i++) {
-    lcd.scrollDisplayLeft();
-    delay(500);
-  }
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Digite a palavra");
-  lcd.setCursor(0, 1);
-  lcd.print("para substituir:");
-  lcd.setCursor(0, 1);
-  for (int i = 0; i < frase.length() - 16; i++) {
-    lcd.scrollDisplayLeft();
-    delay(500);
-  }
-  while (!Serial.available()) {} // Espera até que algo seja digitado no terminal
-  String palavraInserida = Serial.readStringUntil('\n'); // Lê a palavra a ser inserida no lugar da palavra escolhida até o caractere de nova linha
-  palavraInserida.trim(); // Remove espaços em branco do início e do fim da palavra
-
-  // Substitui a palavra escolhida pela palavra inserida na frase
-  frase.replace(palavraEscolhida, palavraInserida);
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Nova frase:");
-  lcd.setCursor(0, 1);
-  lcd.print(frase);
-
-  // Rolagem da frase caso ela ultrapasse o limite das 2 linhas
-  for (int i = 0; i < frase.length() - 16; i++) {
-    lcd.scrollDisplayLeft();
-    delay(500);
-  }
-
-  delay(5000); // Aguarda 5 segundos antes de reiniciar o loop
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Digite uma frase:");
+    // Enviar a mensagem completa para o PC
+    Serial.println(mensagem);
+    lcd.clear();
+    lcd.print("Msg enviada");
+    delay(5000);
+    lcd.clear();
+    mostrarMenu();
 }

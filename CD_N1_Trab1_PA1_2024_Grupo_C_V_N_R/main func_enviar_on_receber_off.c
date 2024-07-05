@@ -3,7 +3,7 @@
 #include <string.h>
 #include <windows.h>
 
-#define SERIAL_PORT "COM9"
+#define SERIAL_PORT "COM9"  // Ajuste conforme necessário
 #define BAUD_RATE CBR_9600
 
 typedef enum {
@@ -18,7 +18,7 @@ typedef struct {
 HANDLE configurarSerial(const char *porta);
 void enviarSerial(HANDLE hSerial, const char *mensagem);
 void lerSerial(HANDLE hSerial, char *buffer, int tamanho);
-void receberDados(HANDLE hSerial, char *buffer, int length);
+char lerBotaoArduino(HANDLE hSerial);
 
 HANDLE configurarSerial(const char *porta) {
     HANDLE hSerial = CreateFile(porta, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -29,7 +29,6 @@ HANDLE configurarSerial(const char *porta) {
 
     DCB dcbSerialParams = {0};
     dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
-
     if (!GetCommState(hSerial, &dcbSerialParams)) {
         CloseHandle(hSerial);
         fprintf(stderr, "Erro ao obter estado da porta serial\n");
@@ -40,7 +39,6 @@ HANDLE configurarSerial(const char *porta) {
     dcbSerialParams.ByteSize = 8;
     dcbSerialParams.StopBits = ONESTOPBIT;
     dcbSerialParams.Parity = NOPARITY;
-
     if (!SetCommState(hSerial, &dcbSerialParams)) {
         CloseHandle(hSerial);
         fprintf(stderr, "Erro ao definir estado da porta serial\n");
@@ -61,16 +59,13 @@ void lerSerial(HANDLE hSerial, char *buffer, int tamanho) {
     buffer[bytesRead] = '\0';
 }
 
-void receberDados(HANDLE hSerial, char *buffer, int length) {
-    DWORD bytes_read;
-    if (!ReadFile(hSerial, buffer, length, &bytes_read, NULL)) {
-        printf("Erro ao ler a partir da porta serial\n");
+char lerBotaoArduino(HANDLE hSerial) {
+    char buffer[1];
+    DWORD bytesRead;
+    if (ReadFile(hSerial, buffer, 1, &bytesRead, NULL) && bytesRead == 1) {
+        return buffer[0];
     }
-    buffer[bytes_read] = '\0';
-}
-
-void limparBufferSerial(HANDLE hSerial) {
-    PurgeComm(hSerial, PURGE_RXCLEAR | PURGE_TXCLEAR);
+    return '\0';
 }
 
 int main() {
@@ -79,41 +74,38 @@ int main() {
     if (sistema.hSerial == INVALID_HANDLE_VALUE) return 1;
 
     sistema.estado = AGUARDANDO;
-    char buffer[256];
+    char buffer[16];
+
+    printf("Inicializando sistema...\n");
+    Sleep(2000);
 
     while (1) {
-        printf("Escolha sua opcao:\n");
-        printf("1 - PC -> Arduino\n");
-        printf("2 - Arduino -> PC\n");
+        printf("Escolha sua opção no Arduino...\n");
+        char comando = lerBotaoArduino(sistema.hSerial);
 
-        int escolha;
-        scanf("%d", &escolha);
-        getchar(); // Consumir o newline deixado pelo scanf
-
-        if (escolha == 1) {
-            sistema.estado = PC_TO_ARDUINO;
-        } else if (escolha == 2) {
-            sistema.estado = ARDUINO_TO_PC;
-        } else {
-            printf("Opcao invalida!\n");
+        if (comando == 'S') {
+            if (sistema.estado == AGUARDANDO) {
+                sistema.estado = PC_TO_ARDUINO;
+                printf("PC -> Arduino selecionado.\nDigite sua mensagem (max 16 caracteres):\n");
+                fgets(buffer, sizeof(buffer), stdin);
+                enviarSerial(sistema.hSerial, buffer);
+                printf("Mensagem enviada ao Arduino.\n");
+            } else if (sistema.estado == PC_TO_ARDUINO) {
+                sistema.estado = ARDUINO_TO_PC;
+                printf("Arduino -> PC selecionado.\nAguardando mensagem do Arduino...\n");
+                lerSerial(sistema.hSerial, buffer, sizeof(buffer));
+                printf("Mensagem recebida: %s\n", buffer);
+            }
+            printf("Voltando ao menu principal...\n");
+            Sleep(5000);
+            sistema.estado = AGUARDANDO;
+        } else if (comando == 'L') {
+            // Navegação ainda não é necessária no PC, apenas no Arduino
             continue;
         }
-
-        if (sistema.estado == PC_TO_ARDUINO) {
-            printf("Digite sua mensagem (max 16 caracteres):\n");
-            fgets(buffer, sizeof(buffer), stdin);
-            // Remove newline character
-            buffer[strcspn(buffer, "\n")] = 0;
-            enviarSerial(sistema.hSerial, buffer);
-            printf("Mensagem enviada ao Arduino.\n");
-        } else if (sistema.estado == ARDUINO_TO_PC) {
-            printf("Aguardando mensagem do Arduino...\n");
-            limparBufferSerial(sistema.hSerial);
-            receberDados(sistema.hSerial, buffer, sizeof(buffer) - 1);
-            printf("Mensagem recebida: %s\n", buffer);
-        }
+        Sleep(100);
     }
-//Tratar trazendo apenas o prox. 
+
     CloseHandle(sistema.hSerial);
     return 0;
 }
